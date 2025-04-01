@@ -3,6 +3,7 @@ import time
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from telegram import Bot
 
 # Получение переменных окружения
@@ -18,10 +19,11 @@ def setup_driver():
     chrome_options.add_argument("--headless")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
-    # Указываем путь к бинарнику Chrome/Chromium и chromedriver из переменных окружения
+    # Указываем путь к бинарнику Chrome/Chromium (определяется переменной окружения)
     chrome_options.binary_location = os.environ.get("CHROME_BIN", "/usr/bin/chromium")
     driver_path = os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
-    driver = webdriver.Chrome(executable_path=driver_path, options=chrome_options)
+    service = Service(driver_path)
+    driver = webdriver.Chrome(service=service, options=chrome_options)
     return driver
 
 def login_flow(driver):

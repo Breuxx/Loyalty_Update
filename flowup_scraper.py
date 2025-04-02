@@ -60,18 +60,16 @@ class FlowUpScraper:
         except Exception as e:
             raise Exception(f"Кнопка входа не найдена или не кликабельна: {e}")
         
+        # Ждем изменения URL или появления элемента, свидетельствующего об успешном входе
         try:
             WebDriverWait(self.driver, 20).until(EC.url_changes(FLOWUP_LOGIN_URL))
         except Exception:
             pass
 
-    def get_company_links(self):
+    def get_company_identifiers(self):
         """
-        Получаем список ссылок для компаний.
-        Предполагается, что элемент компании содержит атрибут href или его можно получить через JavaScript.
-        Если ссылки нет, можно сохранить текст и повторно кликнуть по элементу.
+        Находим все элементы компании по селектору и возвращаем список их текстовых идентификаторов (названий).
         """
-        # Ждем появления элементов компании
         try:
             companies = WebDriverWait(self.driver, 20).until(
                 EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.company-title"))
@@ -81,41 +79,34 @@ class FlowUpScraper:
             companies = []
         
         print(f"Отладка: Найдено компаний: {len(companies)}")
-        
-        company_links = []
-        for company in companies:
-            # Попытка получить ссылку из атрибута href (если есть)
-            link = company.get_attribute("href")
-            if link:
-                company_links.append(link)
-            else:
-                # Если ссылки нет, сохраняем элемент, чтобы по нему можно было кликнуть
-                company_links.append(company.text.strip())
-        return company_links
+        # Возвращаем список названий компаний (обрезанных)
+        identifiers = [company.text.strip() for company in companies if company.text.strip()]
+        return identifiers
 
     def open_company(self, company_identifier):
         """
-        Открывает страницу компании по ссылке или кликом по элементу с заданным текстом.
-        Если company_identifier является ссылкой (начинается с http), то переходим по ней.
-        Иначе ищем элемент с текстом company_identifier и кликаем по нему.
+        Открывает страницу компании по поиску элемента с нужным текстом.
+        Если элемент не находится сразу, повторяет попытку несколько раз.
         """
-        if company_identifier.startswith("http"):
-            self.driver.get(company_identifier)
-        else:
-            # Ждем появления элемента с нужным текстом
+        for attempt in range(3):
             try:
                 company_element = WebDriverWait(self.driver, 20).until(
-                    EC.element_to_be_clickable((By.XPATH, f"//div[contains(@class, 'company-title') and normalize-space()='{company_identifier}']"))
+                    EC.element_to_be_clickable(
+                        (By.XPATH, f"//div[contains(@class, 'company-title') and normalize-space()='{company_identifier}']")
+                    )
                 )
                 self.driver.execute_script("arguments[0].click();", company_element)
+                time.sleep(2)
+                return
             except Exception as e:
-                print(f"Отладка: Не удалось открыть компанию {company_identifier}: {e}")
-        time.sleep(2)
+                print(f"Отладка: Попытка {attempt+1} открыть компанию '{company_identifier}' не удалась: {e}")
+                time.sleep(1)
+        raise Exception(f"Не удалось открыть компанию '{company_identifier}' после нескольких попыток.")
 
     def get_drivers(self):
         """
-        Получаем список водителей для текущей компании.
-        В данном примере предполагается, что водители указаны в ячейках <td> с атрибутом _ngcontent-ng-c3802590250.
+        Ищет водителей на странице компании.
+        В данном примере водители – это все ячейки <td> с атрибутом _ngcontent-ng-c3802590250.
         """
         drivers = self.driver.find_elements(By.CSS_SELECTOR, "td[_ngcontent-ng-c3802590250]")
         return drivers
@@ -134,7 +125,7 @@ class FlowUpScraper:
                     report_lines.append(f"Обработка водителя: {driver_name}")
                     driver_report = self.process_driver(driver_name)
                     report_lines.extend(driver_report)
-        # Возвращаемся к списку компаний
+        # После обработки компании возвращаемся к списку компаний
         self.driver.back()
         time.sleep(2)
         return report_lines
@@ -207,14 +198,18 @@ class FlowUpScraper:
         final_report = []
         try:
             self.login()
-            # Получаем список компаний (ссылки или названия)
-            company_identifiers = self.get_company_links()
+            # Сохраняем URL списка компаний (после входа)
+            companies_page_url = self.driver.current_url
+            company_identifiers = self.get_company_identifiers()
             if not company_identifiers:
                 final_report.append("Нет компаний для обработки.")
             else:
                 final_report.append(f"Найдено компаний: {len(company_identifiers)}")
                 for identifier in company_identifiers:
                     final_report.append(f"\nКомпания: {identifier}")
+                    # Перезагружаем страницу списка компаний для получения свежего DOM
+                    self.driver.get(companies_page_url)
+                    time.sleep(2)
                     comp_report = self.process_company(identifier)
                     final_report.extend(comp_report)
         except Exception as e:

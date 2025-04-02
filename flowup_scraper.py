@@ -5,6 +5,8 @@ import tempfile
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from config import (
     FLOWUP_LOGIN_URL,
     FLOWUP_USERNAME,
@@ -17,36 +19,49 @@ from config import (
 class FlowUpScraper:
     def __init__(self):
         chrome_options = Options()
-        chrome_options.add_argument("--headless")  # запускаем без GUI
+        chrome_options.add_argument("--headless")  # Запуск без графического интерфейса
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         
-        # Вариант 1: Используем уникальный каталог для данных пользователя
+        # Использование временного каталога для данных пользователя.
         tmp_dir = tempfile.mkdtemp()
         chrome_options.add_argument(f"--user-data-dir={tmp_dir}")
-        
-        # Если всё ещё возникает ошибка, можно попробовать убрать аргумент --user-data-dir:
-        # chrome_options.arguments = [arg for arg in chrome_options.arguments if "--user-data-dir" not in arg]
         
         self.driver = webdriver.Chrome(options=chrome_options)
     
     def login(self):
         self.driver.get(FLOWUP_LOGIN_URL)
-        time.sleep(2)  # подождать загрузку страницы
+        
+        try:
+            username_input = WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.NAME, "username"))
+            )
+        except Exception as e:
+            raise Exception(f"Поле для логина не найдено: {e}")
 
-        # Пример: Найти поля логина и пароля и заполнить их
-        username_input = self.driver.find_element(By.NAME, "username")
-        password_input = self.driver.find_element(By.NAME, "password")
+        try:
+            password_input = WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.NAME, "password"))
+            )
+        except Exception as e:
+            raise Exception(f"Поле для пароля не найдено: {e}")
+
         username_input.send_keys(FLOWUP_USERNAME)
         password_input.send_keys(FLOWUP_PASSWORD)
         
-        # Найти и нажать кнопку входа
-        login_button = self.driver.find_element(By.XPATH, "//button[@type='submit']")
-        login_button.click()
-        time.sleep(3)  # ожидание авторизации
+        try:
+            login_button = WebDriverWait(self.driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, "//button[@type='submit']"))
+            )
+            login_button.click()
+        except Exception as e:
+            raise Exception(f"Кнопка входа не найдена или не кликабельна: {e}")
+        
+        # Ожидаем изменения URL после успешного входа или появления элемента, указывающего на авторизацию
+        WebDriverWait(self.driver, 10).until(EC.url_changes(FLOWUP_LOGIN_URL))
     
     def get_companies(self):
-        # Предполагается, что после входа отображается список компаний
+        # После входа на сайт ищем элементы компаний
         companies = self.driver.find_elements(By.CSS_SELECTOR, ".company-item")
         company_links = [company.get_attribute("href") for company in companies]
         return company_links
@@ -55,7 +70,7 @@ class FlowUpScraper:
         self.driver.get(company_url)
         time.sleep(2)
         
-        # Находим список водителей в компании
+        # Ищем список водителей по CSS селектору
         drivers = self.driver.find_elements(By.CSS_SELECTOR, ".driver-item")
         report_lines = []
         if not drivers:
@@ -64,7 +79,7 @@ class FlowUpScraper:
         
         for driver in drivers:
             driver_name = driver.text
-            driver.click()  # заходим в профиль водителя
+            driver.click()  # Заходим в профиль водителя
             time.sleep(2)
             report_lines.append(f"Обработка водителя: {driver_name}")
             driver_report = self.process_driver()
@@ -76,25 +91,29 @@ class FlowUpScraper:
 
     def process_driver(self):
         report = []
-        # 1. Нажать Start Transaction
+        # 1. Нажимаем Start Transaction
         try:
-            start_button = self.driver.find_element(By.XPATH, "//button[contains(text(),'Start Transaction')]")
+            start_button = WebDriverWait(self.driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Start Transaction')]"))
+            )
             start_button.click()
             time.sleep(2)
         except Exception as e:
             report.append(f"Ошибка при нажатии Start Transaction: {e}")
             return report
         
-        # 2. Нажать Check Logbook
+        # 2. Нажимаем Check Logbook
         try:
-            check_button = self.driver.find_element(By.XPATH, "//button[contains(text(),'Check Logbook')]")
+            check_button = WebDriverWait(self.driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Check Logbook')]"))
+            )
             check_button.click()
             time.sleep(2)
         except Exception as e:
             report.append(f"Ошибка при нажатии Check Logbook: {e}")
             return report
 
-        # 3. Собрать ошибки
+        # 3. Сбор ошибок
         red_errors = self.driver.find_elements(By.CSS_SELECTOR, ".error.red")
         white_errors = self.driver.find_elements(By.CSS_SELECTOR, ".error.white")
         
@@ -112,9 +131,9 @@ class FlowUpScraper:
         else:
             report.append("Некритичных ошибок не обнаружено.")
         
-        # 4. Чтение таймеров (пример)
+        # 4. Чтение таймеров (предполагается, что значения отображаются в секундах)
         try:
-            break_timer = int(self.driver.find_element(By.ID, "break-timer").text)  # значение в секундах
+            break_timer = int(self.driver.find_element(By.ID, "break-timer").text)
             shift_timer = int(self.driver.find_element(By.ID, "shift-timer").text)
             cycle_timer = int(self.driver.find_element(By.ID, "cycle-timer").text)
             
@@ -127,9 +146,11 @@ class FlowUpScraper:
         except Exception as e:
             report.append(f"Ошибка при чтении таймеров: {e}")
         
-        # 5. Завершить транзакцию
+        # 5. Завершение транзакции
         try:
-            finish_button = self.driver.find_element(By.XPATH, "//button[contains(text(),'Finish Transaction')]")
+            finish_button = WebDriverWait(self.driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Finish Transaction')]"))
+            )
             finish_button.click()
             time.sleep(2)
         except Exception as e:
@@ -156,7 +177,6 @@ class FlowUpScraper:
             self.driver.quit()
         return "\n".join(final_report)
 
-# Пример использования:
 if __name__ == "__main__":
     scraper = FlowUpScraper()
     report = scraper.generate_report()

@@ -1,16 +1,29 @@
 # flowup_scraper.py
 
 import time
+import tempfile
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
-from config import FLOWUP_LOGIN_URL, FLOWUP_USERNAME, FLOWUP_PASSWORD, THRESHOLD_BREAK, THRESHOLD_SHIFT, THRESHOLD_CYCLE
+from config import (
+    FLOWUP_LOGIN_URL,
+    FLOWUP_USERNAME,
+    FLOWUP_PASSWORD,
+    THRESHOLD_BREAK,
+    THRESHOLD_SHIFT,
+    THRESHOLD_CYCLE
+)
 
 class FlowUpScraper:
     def __init__(self):
         chrome_options = Options()
         chrome_options.add_argument("--headless")  # запускаем без GUI
-        # Укажите путь к chromedriver, если необходимо
+        
+        # Создаем уникальный временный каталог для пользовательских данных Chrome
+        tmp_dir = tempfile.mkdtemp()
+        chrome_options.add_argument(f"--user-data-dir={tmp_dir}")
+        
+        # Если chromedriver не в PATH, можно указать параметр executable_path
         self.driver = webdriver.Chrome(options=chrome_options)
     
     def login(self):
@@ -98,7 +111,7 @@ class FlowUpScraper:
         
         # 4. Чтение таймеров (пример)
         try:
-            break_timer = int(self.driver.find_element(By.ID, "break-timer").text)  # предполагается, что значение в секундах
+            break_timer = int(self.driver.find_element(By.ID, "break-timer").text)  # значение в секундах
             shift_timer = int(self.driver.find_element(By.ID, "shift-timer").text)
             cycle_timer = int(self.driver.find_element(By.ID, "cycle-timer").text)
             

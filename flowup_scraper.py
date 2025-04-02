@@ -63,11 +63,15 @@ class FlowUpScraper:
         try:
             WebDriverWait(self.driver, 20).until(EC.url_changes(FLOWUP_LOGIN_URL))
         except Exception:
-            # Можно добавить ожидание появления элемента, характерного для авторизованной страницы
             pass
 
-    def get_companies(self):
-        # Ждём появления хотя бы одного элемента компании
+    def get_company_links(self):
+        """
+        Получаем список ссылок для компаний.
+        Предполагается, что элемент компании содержит атрибут href или его можно получить через JavaScript.
+        Если ссылки нет, можно сохранить текст и повторно кликнуть по элементу.
+        """
+        # Ждем появления элементов компании
         try:
             companies = WebDriverWait(self.driver, 20).until(
                 EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.company-title"))
@@ -77,52 +81,66 @@ class FlowUpScraper:
             companies = []
         
         print(f"Отладка: Найдено компаний: {len(companies)}")
-        if len(companies) == 0:
-            html_snippet = self.driver.page_source[:1000]
-            print("Отладка: HTML страницы компаний (первые 1000 символов):")
-            print(html_snippet)
         
-        # Для каждого элемента компании получаем сам элемент; предполагается, что клик по нему откроет нужную страницу
-        return companies
-    
-    def process_company(self, company_element):
-        # Кликаем по элементу компании
-        company_name = company_element.text.strip()
-        print(f"Отладка: Обработка компании: {company_name}")
-        try:
-            # Если элемент не кликается напрямую, можно использовать JS:
-            self.driver.execute_script("arguments[0].click();", company_element)
-        except Exception as e:
-            print(f"Отладка: Не удалось кликнуть по компании {company_name}: {e}")
-            return [f"Ошибка при открытии компании {company_name}"]
-        
-        # Ждем загрузки страницы компании
+        company_links = []
+        for company in companies:
+            # Попытка получить ссылку из атрибута href (если есть)
+            link = company.get_attribute("href")
+            if link:
+                company_links.append(link)
+            else:
+                # Если ссылки нет, сохраняем элемент, чтобы по нему можно было кликнуть
+                company_links.append(company.text.strip())
+        return company_links
+
+    def open_company(self, company_identifier):
+        """
+        Открывает страницу компании по ссылке или кликом по элементу с заданным текстом.
+        Если company_identifier является ссылкой (начинается с http), то переходим по ней.
+        Иначе ищем элемент с текстом company_identifier и кликаем по нему.
+        """
+        if company_identifier.startswith("http"):
+            self.driver.get(company_identifier)
+        else:
+            # Ждем появления элемента с нужным текстом
+            try:
+                company_element = WebDriverWait(self.driver, 20).until(
+                    EC.element_to_be_clickable((By.XPATH, f"//div[contains(@class, 'company-title') and normalize-space()='{company_identifier}']"))
+                )
+                self.driver.execute_script("arguments[0].click();", company_element)
+            except Exception as e:
+                print(f"Отладка: Не удалось открыть компанию {company_identifier}: {e}")
         time.sleep(2)
-        
-        # Ищем всех водителей. Здесь мы предполагаем, что на странице компании
-        # водители указаны в ячейках <td> с атрибутом _ngcontent-ng-c3802590250.
+
+    def get_drivers(self):
+        """
+        Получаем список водителей для текущей компании.
+        В данном примере предполагается, что водители указаны в ячейках <td> с атрибутом _ngcontent-ng-c3802590250.
+        """
         drivers = self.driver.find_elements(By.CSS_SELECTOR, "td[_ngcontent-ng-c3802590250]")
-        print(f"Отладка: Для компании '{company_name}' найдено водителей: {len(drivers)}")
+        return drivers
+
+    def process_company(self, company_identifier):
+        self.open_company(company_identifier)
+        drivers = self.get_drivers()
+        print(f"Отладка: Для компании '{company_identifier}' найдено водителей: {len(drivers)}")
         report_lines = []
         if not drivers:
             report_lines.append("В компании нет водителей.")
         else:
             for driver in drivers:
                 driver_name = driver.text.strip()
-                if driver_name:  # если текст не пустой
+                if driver_name:
                     report_lines.append(f"Обработка водителя: {driver_name}")
                     driver_report = self.process_driver(driver_name)
                     report_lines.extend(driver_report)
-        # Возвращаемся на предыдущую страницу (список компаний)
+        # Возвращаемся к списку компаний
         self.driver.back()
         time.sleep(2)
         return report_lines
 
     def process_driver(self, driver_name):
         report = []
-        # Здесь добавляем обработку для каждого водителя:
-        # Нажатие кнопок, сбор ошибок и таймеров.
-        # В данной версии мы просто эмулируем нажатия и собираем информацию.
         try:
             start_button = WebDriverWait(self.driver, 10).until(
                 EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Start Transaction')]"))
@@ -189,14 +207,15 @@ class FlowUpScraper:
         final_report = []
         try:
             self.login()
-            companies = self.get_companies()
-            if not companies:
+            # Получаем список компаний (ссылки или названия)
+            company_identifiers = self.get_company_links()
+            if not company_identifiers:
                 final_report.append("Нет компаний для обработки.")
             else:
-                final_report.append(f"Найдено компаний: {len(companies)}")
-                for company_element in companies:
-                    final_report.append(f"\nКомпания: {company_element.text.strip()}")
-                    comp_report = self.process_company(company_element)
+                final_report.append(f"Найдено компаний: {len(company_identifiers)}")
+                for identifier in company_identifiers:
+                    final_report.append(f"\nКомпания: {identifier}")
+                    comp_report = self.process_company(identifier)
                     final_report.extend(comp_report)
         except Exception as e:
             final_report.append(f"Общая ошибка: {e}")

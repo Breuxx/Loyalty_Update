@@ -22,16 +22,13 @@ class FlowUpScraper:
         chrome_options.add_argument("--headless")  # Запуск без графического интерфейса
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
-        
-        # Использование временного каталога для данных пользователя.
         tmp_dir = tempfile.mkdtemp()
         chrome_options.add_argument(f"--user-data-dir={tmp_dir}")
-        
         self.driver = webdriver.Chrome(options=chrome_options)
     
     def login(self):
         self.driver.get(FLOWUP_LOGIN_URL)
-        # Для отладки можно вывести HTML страницы:
+        # Если нужно, раскомментируйте ниже для отладки HTML страницы входа:
         # print(self.driver.page_source)
         try:
             email_input = WebDriverWait(self.driver, 20).until(
@@ -57,13 +54,12 @@ class FlowUpScraper:
         try:
             WebDriverWait(self.driver, 20).until(EC.url_changes(FLOWUP_LOGIN_URL))
         except Exception:
-            # Если URL не меняется, можно добавить ожидание появления другого элемента,
-            # характерного для авторизованной страницы.
-            pass
+            pass  # Можно добавить ожидание появления элемента, характерного для авторизованной страницы
 
     def get_company_identifiers(self):
         """
-        Находит все элементы компаний по селектору и возвращает список очищённых названий.
+        Получаем список названий компаний с использованием селектора для div.company-title.
+        Удаляем лишний префикс 'Company', если он присутствует.
         """
         try:
             companies = WebDriverWait(self.driver, 20).until(
@@ -76,7 +72,6 @@ class FlowUpScraper:
         identifiers = []
         for comp in companies:
             text = comp.text.strip()
-            # Если в тексте встречается лишний префикс (например, "Company"), удаляем его.
             if text.lower().startswith("company"):
                 text = text[len("company"):].strip()
             if text:
@@ -85,9 +80,8 @@ class FlowUpScraper:
 
     def open_company(self, company_identifier):
         """
-        Находит и кликает по элементу компании с текстом company_identifier,
-        используя XPath с normalize-space().
-        Повторяет попытку до 3 раз.
+        Находит элемент компании по точному тексту и кликает по нему.
+        Если не удаётся открыть компанию за 3 попытки, возвращает False.
         """
         xpath = f"//div[contains(@class, 'company-title') and normalize-space(.)='{company_identifier}']"
         for attempt in range(3):
@@ -95,7 +89,7 @@ class FlowUpScraper:
                 company_element = WebDriverWait(self.driver, 20).until(
                     EC.element_to_be_clickable((By.XPATH, xpath))
                 )
-                # Прокручиваем элемент в область видимости
+                # Прокручиваем элемент в область видимости и кликаем через JavaScript
                 self.driver.execute_script("arguments[0].scrollIntoView(true);", company_element)
                 self.driver.execute_script("arguments[0].click();", company_element)
                 time.sleep(2)
@@ -107,12 +101,10 @@ class FlowUpScraper:
 
     def get_drivers(self):
         """
-        Возвращает список элементов водителей.
-        Здесь используется селектор для ячеек <td> с атрибутом _ngcontent-ng-c3802590250.
-        Возможно, потребуется уточнить селектор в зависимости от структуры страницы.
+        Ждем появления хотя бы одного элемента водителя (ячейки <td> с атрибутом _ngcontent-ng-c3802590250).
+        Если их нет, возвращаем пустой список.
         """
         try:
-            # Можно добавить ожидание появления хотя бы одного водителя, если они должны быть.
             drivers = WebDriverWait(self.driver, 10).until(
                 EC.presence_of_all_elements_located((By.CSS_SELECTOR, "td[_ngcontent-ng-c3802590250]"))
             )
@@ -136,7 +128,7 @@ class FlowUpScraper:
                     report_lines.append(f"Обработка водителя: {driver_name}")
                     driver_report = self.process_driver(driver_name)
                     report_lines.extend(driver_report)
-        # После обработки возвращаемся на страницу списка компаний
+        # После обработки компании возвращаемся на страницу списка компаний
         self.driver.get(companies_page_url)
         time.sleep(2)
         return report_lines
@@ -162,6 +154,7 @@ class FlowUpScraper:
             report.append(f"Ошибка при нажатии Check Logbook для {driver_name}: {e}")
             return report
 
+        # Сбор ошибок – ищем элементы с классами .error.red и .error.white
         red_errors = self.driver.find_elements(By.CSS_SELECTOR, ".error.red")
         white_errors = self.driver.find_elements(By.CSS_SELECTOR, ".error.white")
         if red_errors:
@@ -202,6 +195,7 @@ class FlowUpScraper:
         final_report = []
         try:
             self.login()
+            # Сохраняем URL страницы списка компаний после входа
             companies_page_url = self.driver.current_url
             company_identifiers = self.get_company_identifiers()
             if not company_identifiers:

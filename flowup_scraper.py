@@ -32,23 +32,29 @@ class FlowUpScraper:
     def login(self):
         self.driver.get(FLOWUP_LOGIN_URL)
         
+        # Для отладки можно раскомментировать:
+        # print(self.driver.page_source)
+        
+        # Ждём появления поля для email (логин)
         try:
-            username_input = WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.NAME, "username"))
+            email_input = WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.ID, "typeEmailX"))
             )
         except Exception as e:
             raise Exception(f"Поле для логина не найдено: {e}")
 
+        # Ждём появления поля для пароля
         try:
             password_input = WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.NAME, "password"))
+                EC.presence_of_element_located((By.ID, "typePasswordX"))
             )
         except Exception as e:
             raise Exception(f"Поле для пароля не найдено: {e}")
 
-        username_input.send_keys(FLOWUP_USERNAME)
+        email_input.send_keys(FLOWUP_USERNAME)
         password_input.send_keys(FLOWUP_PASSWORD)
         
+        # Ждём появления и кликабельности кнопки входа. Здесь предполагается, что кнопка имеет type="submit"
         try:
             login_button = WebDriverWait(self.driver, 10).until(
                 EC.element_to_be_clickable((By.XPATH, "//button[@type='submit']"))
@@ -57,7 +63,7 @@ class FlowUpScraper:
         except Exception as e:
             raise Exception(f"Кнопка входа не найдена или не кликабельна: {e}")
         
-        # Ожидаем изменения URL после успешного входа или появления элемента, указывающего на авторизацию
+        # Ожидаем изменения URL после входа или появления другого индикатора успешного логина
         WebDriverWait(self.driver, 10).until(EC.url_changes(FLOWUP_LOGIN_URL))
     
     def get_companies(self):
@@ -70,7 +76,7 @@ class FlowUpScraper:
         self.driver.get(company_url)
         time.sleep(2)
         
-        # Ищем список водителей по CSS селектору
+        # Ищем список водителей по CSS-селектору
         drivers = self.driver.find_elements(By.CSS_SELECTOR, ".driver-item")
         report_lines = []
         if not drivers:
@@ -91,7 +97,7 @@ class FlowUpScraper:
 
     def process_driver(self):
         report = []
-        # 1. Нажимаем Start Transaction
+        # 1. Нажимаем кнопку "Start Transaction"
         try:
             start_button = WebDriverWait(self.driver, 10).until(
                 EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Start Transaction')]"))
@@ -102,7 +108,7 @@ class FlowUpScraper:
             report.append(f"Ошибка при нажатии Start Transaction: {e}")
             return report
         
-        # 2. Нажимаем Check Logbook
+        # 2. Нажимаем кнопку "Check Logbook"
         try:
             check_button = WebDriverWait(self.driver, 10).until(
                 EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Check Logbook')]"))
@@ -113,7 +119,7 @@ class FlowUpScraper:
             report.append(f"Ошибка при нажатии Check Logbook: {e}")
             return report
 
-        # 3. Сбор ошибок
+        # 3. Сбор ошибок (элементы с классами .error.red и .error.white)
         red_errors = self.driver.find_elements(By.CSS_SELECTOR, ".error.red")
         white_errors = self.driver.find_elements(By.CSS_SELECTOR, ".error.white")
         
@@ -131,7 +137,7 @@ class FlowUpScraper:
         else:
             report.append("Некритичных ошибок не обнаружено.")
         
-        # 4. Чтение таймеров (предполагается, что значения отображаются в секундах)
+        # 4. Чтение таймеров (ожидается, что значения отображаются в секундах)
         try:
             break_timer = int(self.driver.find_element(By.ID, "break-timer").text)
             shift_timer = int(self.driver.find_element(By.ID, "shift-timer").text)
@@ -146,7 +152,7 @@ class FlowUpScraper:
         except Exception as e:
             report.append(f"Ошибка при чтении таймеров: {e}")
         
-        # 5. Завершение транзакции
+        # 5. Завершение транзакции ("Finish Transaction")
         try:
             finish_button = WebDriverWait(self.driver, 10).until(
                 EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Finish Transaction')]"))

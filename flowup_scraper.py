@@ -18,12 +18,16 @@ class FlowUpScraper:
     def __init__(self):
         chrome_options = Options()
         chrome_options.add_argument("--headless")  # запускаем без GUI
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
         
-        # Создаем уникальный временный каталог для пользовательских данных Chrome
+        # Вариант 1: Используем уникальный каталог для данных пользователя
         tmp_dir = tempfile.mkdtemp()
         chrome_options.add_argument(f"--user-data-dir={tmp_dir}")
         
-        # Если chromedriver не в PATH, можно указать параметр executable_path
+        # Если всё ещё возникает ошибка, можно попробовать убрать аргумент --user-data-dir:
+        # chrome_options.arguments = [arg for arg in chrome_options.arguments if "--user-data-dir" not in arg]
+        
         self.driver = webdriver.Chrome(options=chrome_options)
     
     def login(self):
@@ -91,7 +95,6 @@ class FlowUpScraper:
             return report
 
         # 3. Собрать ошибки
-        # Пример поиска элементов с красным и белым фоном:
         red_errors = self.driver.find_elements(By.CSS_SELECTOR, ".error.red")
         white_errors = self.driver.find_elements(By.CSS_SELECTOR, ".error.white")
         

@@ -32,8 +32,7 @@ class FlowUpScraper:
     def login(self):
         self.driver.get(FLOWUP_LOGIN_URL)
         
-        # Для отладки можно раскомментировать следующую строку,
-        # чтобы увидеть HTML-код страницы входа:
+        # Для отладки можно раскомментировать:
         # print(self.driver.page_source)
         
         try:
@@ -61,57 +60,69 @@ class FlowUpScraper:
         except Exception as e:
             raise Exception(f"Кнопка входа не найдена или не кликабельна: {e}")
         
-        # Ожидаем изменения URL после входа или появления индикатора авторизации
         try:
             WebDriverWait(self.driver, 20).until(EC.url_changes(FLOWUP_LOGIN_URL))
         except Exception:
-            # Если URL не меняется, можно добавить ожидание появления элемента,
-            # характерного для авторизованной страницы.
+            # Можно добавить ожидание появления элемента, характерного для авторизованной страницы
             pass
 
     def get_companies(self):
-        # Если на странице компаний есть контейнер, можно ожидать его появления.
+        # Ждём появления хотя бы одного элемента компании
         try:
-            WebDriverWait(self.driver, 20).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, ".company-container"))
+            companies = WebDriverWait(self.driver, 20).until(
+                EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.company-title"))
             )
         except Exception as e:
-            print("Предупреждение: Контейнер компаний не найден. Возможно, селектор нужно изменить.", e)
+            print("Отладка: Элементы компаний не найдены:", e)
+            companies = []
         
-        companies = self.driver.find_elements(By.CSS_SELECTOR, ".company-item")
         print(f"Отладка: Найдено компаний: {len(companies)}")
         if len(companies) == 0:
-            # Выводим часть HTML страницы для отладки
             html_snippet = self.driver.page_source[:1000]
             print("Отладка: HTML страницы компаний (первые 1000 символов):")
             print(html_snippet)
-        company_links = [company.get_attribute("href") for company in companies]
-        return company_links
+        
+        # Для каждого элемента компании получаем сам элемент; предполагается, что клик по нему откроет нужную страницу
+        return companies
     
-    def process_company(self, company_url):
-        self.driver.get(company_url)
+    def process_company(self, company_element):
+        # Кликаем по элементу компании
+        company_name = company_element.text.strip()
+        print(f"Отладка: Обработка компании: {company_name}")
+        try:
+            # Если элемент не кликается напрямую, можно использовать JS:
+            self.driver.execute_script("arguments[0].click();", company_element)
+        except Exception as e:
+            print(f"Отладка: Не удалось кликнуть по компании {company_name}: {e}")
+            return [f"Ошибка при открытии компании {company_name}"]
+        
+        # Ждем загрузки страницы компании
         time.sleep(2)
         
-        drivers = self.driver.find_elements(By.CSS_SELECTOR, ".driver-item")
-        print(f"Отладка: По компании {company_url} найдено водителей: {len(drivers)}")
+        # Ищем всех водителей. Здесь мы предполагаем, что на странице компании
+        # водители указаны в ячейках <td> с атрибутом _ngcontent-ng-c3802590250.
+        drivers = self.driver.find_elements(By.CSS_SELECTOR, "td[_ngcontent-ng-c3802590250]")
+        print(f"Отладка: Для компании '{company_name}' найдено водителей: {len(drivers)}")
         report_lines = []
         if not drivers:
             report_lines.append("В компании нет водителей.")
-            return report_lines
-        
-        for driver in drivers:
-            driver_name = driver.text
-            driver.click()  # Заходим в профиль водителя
-            time.sleep(2)
-            report_lines.append(f"Обработка водителя: {driver_name}")
-            driver_report = self.process_driver()
-            report_lines.extend(driver_report)
-            self.driver.back()
-            time.sleep(2)
+        else:
+            for driver in drivers:
+                driver_name = driver.text.strip()
+                if driver_name:  # если текст не пустой
+                    report_lines.append(f"Обработка водителя: {driver_name}")
+                    driver_report = self.process_driver(driver_name)
+                    report_lines.extend(driver_report)
+        # Возвращаемся на предыдущую страницу (список компаний)
+        self.driver.back()
+        time.sleep(2)
         return report_lines
 
-    def process_driver(self):
+    def process_driver(self, driver_name):
         report = []
+        # Здесь добавляем обработку для каждого водителя:
+        # Нажатие кнопок, сбор ошибок и таймеров.
+        # В данной версии мы просто эмулируем нажатия и собираем информацию.
         try:
             start_button = WebDriverWait(self.driver, 10).until(
                 EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Start Transaction')]"))
@@ -119,7 +130,7 @@ class FlowUpScraper:
             start_button.click()
             time.sleep(2)
         except Exception as e:
-            report.append(f"Ошибка при нажатии Start Transaction: {e}")
+            report.append(f"Ошибка при нажатии Start Transaction для {driver_name}: {e}")
             return report
         
         try:
@@ -129,7 +140,7 @@ class FlowUpScraper:
             check_button.click()
             time.sleep(2)
         except Exception as e:
-            report.append(f"Ошибка при нажатии Check Logbook: {e}")
+            report.append(f"Ошибка при нажатии Check Logbook для {driver_name}: {e}")
             return report
 
         red_errors = self.driver.find_elements(By.CSS_SELECTOR, ".error.red")
@@ -137,14 +148,14 @@ class FlowUpScraper:
         
         if red_errors:
             for err in red_errors:
-                error_text = err.text
+                error_text = err.text.strip()
                 report.append(f"Критичная ошибка: {error_text}")
         else:
             report.append("Критичных ошибок не обнаружено.")
         
         if white_errors:
             for err in white_errors:
-                error_text = err.text
+                error_text = err.text.strip()
                 report.append(f"Не критичная ошибка: {error_text}")
         else:
             report.append("Некритичных ошибок не обнаружено.")
@@ -161,7 +172,7 @@ class FlowUpScraper:
             if cycle_timer < THRESHOLD_CYCLE:
                 report.append(f"Внимание: оставшееся время Cycle {cycle_timer//3600} ч.")
         except Exception as e:
-            report.append(f"Ошибка при чтении таймеров: {e}")
+            report.append(f"Ошибка при чтении таймеров для {driver_name}: {e}")
         
         try:
             finish_button = WebDriverWait(self.driver, 10).until(
@@ -170,7 +181,7 @@ class FlowUpScraper:
             finish_button.click()
             time.sleep(2)
         except Exception as e:
-            report.append(f"Ошибка при завершении транзакции: {e}")
+            report.append(f"Ошибка при завершении транзакции для {driver_name}: {e}")
         
         return report
 
@@ -183,9 +194,9 @@ class FlowUpScraper:
                 final_report.append("Нет компаний для обработки.")
             else:
                 final_report.append(f"Найдено компаний: {len(companies)}")
-                for comp_url in companies:
-                    final_report.append(f"\nОбработка компании: {comp_url}")
-                    comp_report = self.process_company(comp_url)
+                for company_element in companies:
+                    final_report.append(f"\nКомпания: {company_element.text.strip()}")
+                    comp_report = self.process_company(company_element)
                     final_report.extend(comp_report)
         except Exception as e:
             final_report.append(f"Общая ошибка: {e}")

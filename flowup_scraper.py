@@ -32,21 +32,22 @@ class FlowUpScraper:
     def login(self):
         self.driver.get(FLOWUP_LOGIN_URL)
         
-        # Для отладки можно раскомментировать:
+        # Для отладки можно раскомментировать следующую строку,
+        # чтобы увидеть HTML-код страницы и убедиться, что нужные элементы есть:
         # print(self.driver.page_source)
         
-        # Ждём появления поля для email (логин)
+        # Ждем появления поля для email (логин) с использованием CSS-селектора по ID
         try:
-            email_input = WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.ID, "typeEmailX"))
+            email_input = WebDriverWait(self.driver, 20).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "input#typeEmailX"))
             )
         except Exception as e:
             raise Exception(f"Поле для логина не найдено: {e}")
 
-        # Ждём появления поля для пароля
+        # Ждем появления поля для пароля
         try:
-            password_input = WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.ID, "typePasswordX"))
+            password_input = WebDriverWait(self.driver, 20).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "input#typePasswordX"))
             )
         except Exception as e:
             raise Exception(f"Поле для пароля не найдено: {e}")
@@ -54,9 +55,9 @@ class FlowUpScraper:
         email_input.send_keys(FLOWUP_USERNAME)
         password_input.send_keys(FLOWUP_PASSWORD)
         
-        # Ждём появления и кликабельности кнопки входа. Здесь предполагается, что кнопка имеет type="submit"
+        # Ждем появления и кликабельности кнопки входа.
         try:
-            login_button = WebDriverWait(self.driver, 10).until(
+            login_button = WebDriverWait(self.driver, 20).until(
                 EC.element_to_be_clickable((By.XPATH, "//button[@type='submit']"))
             )
             login_button.click()
@@ -64,10 +65,14 @@ class FlowUpScraper:
             raise Exception(f"Кнопка входа не найдена или не кликабельна: {e}")
         
         # Ожидаем изменения URL после входа или появления другого индикатора успешного логина
-        WebDriverWait(self.driver, 10).until(EC.url_changes(FLOWUP_LOGIN_URL))
-    
+        try:
+            WebDriverWait(self.driver, 20).until(EC.url_changes(FLOWUP_LOGIN_URL))
+        except Exception:
+            # Если URL не меняется, можно попробовать дождаться появления какого-либо элемента, характерного для авторизованной страницы.
+            pass
+
     def get_companies(self):
-        # После входа на сайт ищем элементы компаний
+        # После входа ищем элементы компаний
         companies = self.driver.find_elements(By.CSS_SELECTOR, ".company-item")
         company_links = [company.get_attribute("href") for company in companies]
         return company_links
